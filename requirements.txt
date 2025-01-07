@@ -1,8 +1,11 @@
 streamlit
 pandas
+numpy
 matplotlib
 seaborn
 scipy
-plotly
-fpdf
 scikit-learn
+fpdf
+plotly
+prince
+factor-analyzer
