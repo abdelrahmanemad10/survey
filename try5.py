@@ -1,14 +1,19 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.stats import chi2_contingency, spearmanr, f_oneway
-import numpy as np
+from scipy.stats import chi2_contingency, spearmanr, f_oneway, chi2
 from sklearn.preprocessing import LabelEncoder
 from fpdf import FPDF
 import tempfile
 import os
 import plotly.express as px
+from sklearn.cluster import KMeans
+from prince import MCA
+from factor_analyzer import FactorAnalyzer
+from sklearn.decomposition import LatentDirichletAllocation
+from sklearn.utils import resample
 
 # Load the dataset
 file_path = "Survey.csv"
@@ -18,7 +23,6 @@ df = pd.read_csv(file_path)
 exclude_columns = ["Username", "Email Address", "Timestamp"]
 
 # Preprocess the data
-# Attempt to parse the Timestamp column with a specified format, if possible
 try:
     df["Timestamp"] = pd.to_datetime(df["Timestamp"], format="%Y/%m/%d %I:%M:%S %p %Z", errors="coerce")
 except:
@@ -114,8 +118,8 @@ elif options == "Advanced Statistical Analysis":
 
     if st.button("Run Chi-Squared Test"):
         contingency_table = pd.crosstab(df[challenge], df[strategy])
-        chi2, p, dof, ex = chi2_contingency(contingency_table)
-        st.write(f"Chi-Squared Statistic: {chi2}")
+        chi2_stat, p, dof, ex = chi2_contingency(contingency_table)
+        st.write(f"Chi-Squared Statistic: {chi2_stat}")
         st.write(f"p-value: {p}")
         st.write(f"Degrees of Freedom: {dof}")
         if p < 0.05:
@@ -138,7 +142,7 @@ elif options == "Advanced Statistical Analysis":
         # Cramér's V
         st.subheader("Cramér's V for Association Strength")
         n = contingency_table.sum().sum()
-        cramers_v = np.sqrt(chi2 / (n * (min(contingency_table.shape) - 1)))
+        cramers_v = np.sqrt(chi2_stat / (n * (min(contingency_table.shape) - 1)))
         st.write(f"Cramér's V: {cramers_v}")
         if cramers_v > 0.25:
             st.write("Strong association.")
@@ -147,58 +151,125 @@ elif options == "Advanced Statistical Analysis":
         else:
             st.write("Weak association.")
 
-    # ANOVA (Analysis of Variance)
-    st.subheader("ANOVA (Analysis of Variance)")
-    col1, col2 = st.columns(2)
-    with col1:
-        group_col = st.selectbox("Select the categorical column for grouping:", categorical_columns)
-    with col2:
-        value_col = st.selectbox("Select the numerical column for analysis:", df.select_dtypes(include=np.number).columns)
-
-    if st.button("Run ANOVA"):
-        groups = [df[value_col][df[group_col] == group] for group in df[group_col].unique()]
-        f_stat, p_val = f_oneway(*groups)
-        st.write(f"F-Statistic: {f_stat}")
-        st.write(f"p-value: {p_val}")
-        if p_val < 0.05:
-            st.write("There is a significant difference between the groups.")
-        else:
-            st.write("No significant difference between the groups.")
-
-    # Correlation Analysis for Categorical Data
-    st.subheader("Correlation Analysis for Categorical Data")
-    col1, col2 = st.columns(2)
-    with col1:
-        col_x = st.selectbox("Select the first column for correlation:", categorical_columns)
-    with col2:
-        col_y = st.selectbox("Select the second column for correlation:", categorical_columns)
-
-    if st.button("Run Correlation Analysis"):
-        le = LabelEncoder()
-        df_encoded = df.copy()
-        df_encoded[col_x] = le.fit_transform(df_encoded[col_x].astype(str))
-        df_encoded[col_y] = le.fit_transform(df_encoded[col_y].astype(str))
-        corr, p = spearmanr(df_encoded[col_x], df_encoded[col_y])
-        st.write(f"Spearman Correlation: {corr}")
-        st.write(f"p-value: {p}")
-        if p < 0.05:
-            st.write("Significant correlation found.")
-        else:
-            st.write("No significant correlation found.")
-
-        # Scatter plot for correlation
-        st.subheader("Scatter Plot for Correlation")
-        fig, ax = plt.subplots()
-        sns.scatterplot(x=df_encoded[col_x], y=df_encoded[col_y], ax=ax)
-        ax.set_xlabel(col_x)
-        ax.set_ylabel(col_y)
-        ax.set_title(f"Scatter Plot of {col_x} vs {col_y}")
-        st.pyplot(fig)
+    # Likelihood Ratio Test
+    st.subheader("Likelihood Ratio Test")
+    st.write("Compares the goodness of fit of two nested models.")
+    if st.button("Run Likelihood Ratio Test"):
+        # Example: Compare two contingency tables
+        contingency_table1 = pd.crosstab(df[categorical_columns[0]], df[categorical_columns[1]])
+        contingency_table2 = pd.crosstab(df[categorical_columns[0]], df[categorical_columns[2]])
         
-        # Save the plot as an image
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
-            fig.savefig(tmpfile.name)
-            plot_images.append(tmpfile.name)
+        # Calculate likelihood ratio test statistic
+        chi2_stat1, _, _, _ = chi2_contingency(contingency_table1)
+        chi2_stat2, _, _, _ = chi2_contingency(contingency_table2)
+        lr_stat = -2 * (chi2_stat1 - chi2_stat2)
+        p_value = chi2.sf(lr_stat, df=1)  # Degrees of freedom = 1 for nested models
+        st.write(f"Likelihood Ratio Statistic: {lr_stat}")
+        st.write(f"p-value: {p_value}")
+        if p_value < 0.05:
+            st.write("The models are significantly different.")
+        else:
+            st.write("No significant difference between the models.")
+
+    # Permutation Tests
+    st.subheader("Permutation Tests")
+    st.write("Assesses the significance of relationships by randomly shuffling data.")
+    
+    # Column selection for permutation test
+    col1, col2 = st.columns(2)
+    with col1:
+        perm_col1 = st.selectbox("Select the first column for permutation test:", categorical_columns)
+    with col2:
+        perm_col2 = st.selectbox("Select the second column for permutation test:", categorical_columns)
+
+    if st.button("Run Permutation Test"):
+        if perm_col1 and perm_col2:
+            # Encode categorical data
+            le = LabelEncoder()
+            df_encoded = df.copy()
+            df_encoded[perm_col1] = le.fit_transform(df_encoded[perm_col1].astype(str))
+            df_encoded[perm_col2] = le.fit_transform(df_encoded[perm_col2].astype(str))
+
+            # Calculate observed correlation
+            observed_corr, _ = spearmanr(df_encoded[perm_col1], df_encoded[perm_col2])
+
+            # Permutation test
+            n_permutations = 1000
+            perm_corrs = []
+            for _ in range(n_permutations):
+                perm_col2_shuffled = resample(df_encoded[perm_col2], replace=False, random_state=42)
+                perm_corr, _ = spearmanr(df_encoded[perm_col1], perm_col2_shuffled)
+                perm_corrs.append(perm_corr)
+
+            # Calculate p-value
+            p_value = (np.sum(np.abs(perm_corrs) >= np.abs(observed_corr)) + 1) / (n_permutations + 1)
+            st.write(f"Observed Correlation: {observed_corr}")
+            st.write(f"p-value: {p_value}")
+            if p_value < 0.05:
+                st.write("The correlation is statistically significant.")
+            else:
+                st.write("No significant correlation found.")
+        else:
+            st.write("Please select both columns before running the test.")
+
+    # Latent Class Analysis (LCA)
+    st.subheader("Latent Class Analysis (LCA)")
+    st.write("LCA identifies hidden subgroups within categorical data.")
+    if st.button("Run Latent Class Analysis"):
+        # Encode categorical data for LCA
+        df_encoded = df.copy()
+        for col in categorical_columns:
+            df_encoded[col] = LabelEncoder().fit_transform(df_encoded[col].astype(str))
+
+        # Perform LCA
+        n_components = 3  # Number of latent classes
+        lda = LatentDirichletAllocation(n_components=n_components, random_state=42)
+        lda.fit(df_encoded)
+        st.write("LCA Components:")
+        st.write(lda.components_)
+
+    # Structural Equation Modeling (SEM) for Categorical Data
+    st.subheader("Structural Equation Modeling (SEM)")
+    st.write("SEM models relationships between observed and latent categorical variables.")
+    if st.button("Run SEM"):
+        # Encode categorical data for SEM
+        df_encoded = df.copy()
+        for col in categorical_columns:
+            df_encoded[col] = LabelEncoder().fit_transform(df_encoded[col].astype(str))
+
+        # Perform SEM using FactorAnalyzer
+        fa = FactorAnalyzer(n_factors=3, rotation='varimax')  # Adjust n_factors as needed
+        fa.fit(df_encoded)
+        st.write("Factor Loadings:")
+        st.write(fa.loadings_)
+
+    # Cluster Analysis
+    st.subheader("Cluster Analysis")
+    st.write("Cluster Analysis groups similar cases or variables, especially useful for categorical data.")
+    if st.button("Run Cluster Analysis"):
+        # Encode categorical data for clustering
+        df_encoded = df.copy()
+        for col in categorical_columns:
+            df_encoded[col] = LabelEncoder().fit_transform(df_encoded[col].astype(str))
+
+        # Perform KMeans clustering
+        n_clusters = 3  # Number of clusters
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+        df_encoded['Cluster'] = kmeans.fit_predict(df_encoded)
+        st.write("Cluster Assignments:")
+        st.write(df_encoded['Cluster'].value_counts())
+
+    # Multiple Correspondence Analysis (MCA)
+    st.subheader("Multiple Correspondence Analysis (MCA)")
+    st.write("MCA explores relationships between multiple categorical variables.")
+    if st.button("Run MCA"):
+        # Perform MCA
+        mca = MCA(n_components=2)  # Adjust n_components as needed
+        mca.fit(df[categorical_columns])
+        st.write("MCA Eigenvalues:")
+        st.write(mca.eigenvalues_)
+        st.write("MCA Row Coordinates:")
+        st.write(mca.row_coordinates(df[categorical_columns]))
 
 # Function to create a PDF report
 def create_pdf_report(plot_images, output_path):
