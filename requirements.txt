@@ -9,3 +9,4 @@ fpdf
 plotly
 prince
 factor-analyzer
+kaleido
