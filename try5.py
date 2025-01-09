@@ -213,59 +213,58 @@ elif options == "Advanced Statistical Analysis":
             st.write("Please select both columns before running the test.")
 
     # Latent Class Analysis (LCA)
-st.subheader("Latent Class Analysis (LCA)")
-st.write("LCA identifies hidden subgroups within categorical data.")
-if st.button("Run Latent Class Analysis"):
-    # Encode categorical data for LCA
-    df_encoded = df.copy()
-    for col in categorical_columns:
-        df_encoded[col] = LabelEncoder().fit_transform(df_encoded[col].astype(str))
+    st.subheader("Latent Class Analysis (LCA)")
+    st.write("LCA identifies hidden subgroups within categorical data.")
+    if st.button("Run Latent Class Analysis"):
+        # Encode categorical data for LCA
+        df_encoded = df.copy()
+        for col in categorical_columns:
+            df_encoded[col] = LabelEncoder().fit_transform(df_encoded[col].astype(str))
 
-    # Perform LCA
-    n_components = 3  # Number of latent classes
-    lda = LatentDirichletAllocation(n_components=n_components, random_state=42)
-    lda.fit(df_encoded)
-    st.write("LCA Components:")
-    st.write(lda.components_)
+        # Perform LCA
+        n_components = 3  # Number of latent classes
+        lda = LatentDirichletAllocation(n_components=n_components, random_state=42)
+        lda.fit(df_encoded)
+        st.write("LCA Components:")
+        st.write(lda.components_)
 
-    # Calculate BIC
-    st.subheader("Bayesian Information Criterion (BIC)")
-    log_likelihood = lda.score(df_encoded)
-    bic = -2 * log_likelihood + n_components * np.log(df_encoded.shape[0])
-    st.write(f"BIC: {bic}")
+        # Calculate BIC
+        st.subheader("Bayesian Information Criterion (BIC)")
+        log_likelihood = lda.score(df_encoded)
+        bic = -2 * log_likelihood + n_components * np.log(df_encoded.shape[0])
+        st.write(f"BIC: {bic}")
 
-    # Scatterplots
-    st.subheader("Scatterplots for Latent Classes")
-    reduced_features = df_encoded.iloc[:, :2].values  # Use first two features for simplicity
-    lda_transformed = lda.transform(df_encoded)
-    latent_classes = np.argmax(lda_transformed, axis=1)
-    fig, ax = plt.subplots()
-    scatter = ax.scatter(reduced_features[:, 0], reduced_features[:, 1], c=latent_classes, cmap="viridis", alpha=0.7)
-    legend = ax.legend(*scatter.legend_elements(), title="Classes")
-    ax.add_artist(legend)
-    ax.set_title("Scatterplot of Latent Classes")
-    st.pyplot(fig)
+        # Scatterplots
+        st.subheader("Scatterplots for Latent Classes")
+        reduced_features = df_encoded.iloc[:, :2].values  # Use first two features for simplicity
+        lda_transformed = lda.transform(df_encoded)
+        latent_classes = np.argmax(lda_transformed, axis=1)
+        fig, ax = plt.subplots()
+        scatter = ax.scatter(reduced_features[:, 0], reduced_features[:, 1], c=latent_classes, cmap="viridis", alpha=0.7)
+        legend = ax.legend(*scatter.legend_elements(), title="Classes")
+        ax.add_artist(legend)
+        ax.set_title("Scatterplot of Latent Classes")
+        st.pyplot(fig)
 
-    # Heatmaps
-    st.subheader("Heatmaps for Latent Classes")
-    class_means = pd.DataFrame(lda.components_).T
-    fig, ax = plt.subplots(figsize=(10, 6))
-    sns.heatmap(class_means, annot=True, fmt=".2f", cmap="coolwarm", ax=ax)
-    ax.set_title("Heatmap of Latent Class Means")
-    st.pyplot(fig)
+        # Heatmaps
+        st.subheader("Heatmaps for Latent Classes")
+        class_means = pd.DataFrame(lda.components_).T
+        fig, ax = plt.subplots(figsize=(10, 6))
+        sns.heatmap(class_means, annot=True, fmt=".2f", cmap="coolwarm", ax=ax)
+        ax.set_title("Heatmap of Latent Class Means")
+        st.pyplot(fig)
 
-    # Profile Plots
-    st.subheader("Profile Plots")
-    class_means = pd.DataFrame(lda.components_).T
-    fig, ax = plt.subplots(figsize=(10, 6))
-    for class_idx in range(n_components):
-        ax.plot(class_means.index, class_means[class_idx], label=f"Class {class_idx + 1}")
-    ax.set_title("Profile Plot of Latent Classes")
-    ax.set_xlabel("Feature Index")
-    ax.set_ylabel("Mean Value")
-    ax.legend()
-    st.pyplot(fig)
-
+        # Profile Plots
+        st.subheader("Profile Plots")
+        class_means = pd.DataFrame(lda.components_).T
+        fig, ax = plt.subplots(figsize=(10, 6))
+        for class_idx in range(n_components):
+            ax.plot(class_means.index, class_means[class_idx], label=f"Class {class_idx + 1}")
+        ax.set_title("Profile Plot of Latent Classes")
+        ax.set_xlabel("Feature Index")
+        ax.set_ylabel("Mean Value")
+        ax.legend()
+        st.pyplot(fig)
 
     # Structural Equation Modeling (SEM) for Categorical Data
     st.subheader("Structural Equation Modeling (SEM)")
