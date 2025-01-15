@@ -12,3 +12,5 @@ factor-analyzer
 kaleido
 prince
 pingouin
+tempfile
+os
