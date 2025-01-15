@@ -14,6 +14,9 @@ from prince import MCA
 from factor_analyzer import FactorAnalyzer
 from sklearn.decomposition import LatentDirichletAllocation
 from sklearn.utils import resample
+from pingouin import cronbach_alpha
+import base64
+from datetime import datetime
 
 # Load the dataset
 file_path = "Survey.csv"
@@ -32,6 +35,7 @@ except:
 df.drop(columns=exclude_columns, inplace=True, errors='ignore')
 
 categorical_columns = [col for col in df.columns if df[col].dtype == "object"]
+numerical_columns = df.select_dtypes(include=[np.number]).columns
 
 # Streamlit app
 st.title("Survey Data Analysis")
@@ -40,7 +44,7 @@ st.title("Survey Data Analysis")
 st.sidebar.title("Navigation")
 options = st.sidebar.radio(
     "Select an option:",
-    ["Overview", "Visualizations", "Advanced Statistical Analysis"]
+    ["Overview", "Data Validation", "Visualizations", "Advanced Statistical Analysis"]
 )
 
 # Initialize a list to store plot images
@@ -52,6 +56,109 @@ if options == "Overview":
     st.write("Shape of the dataset:", df.shape)
     st.write("Summary statistics:")
     st.write(df.describe(include="all"))
+
+elif options == "Data Validation":
+    st.header("Data Validation")
+    st.write("This section checks for common data quality issues and provides user controls for validation.")
+
+    # User controls for validation
+    st.sidebar.header("Validation Controls")
+    check_missing_values = st.sidebar.checkbox("Check for Missing Values", value=True)
+    check_duplicates = st.sidebar.checkbox("Check for Duplicate Rows", value=True)
+    check_data_types = st.sidebar.checkbox("Check Data Types", value=True)
+    check_outliers = st.sidebar.checkbox("Check for Outliers", value=True)
+    check_unique_values = st.sidebar.checkbox("Check Unique Values in Categorical Columns", value=True)
+    check_value_ranges = st.sidebar.checkbox("Check Value Ranges for Numerical Columns", value=True)
+    check_invalid_categories = st.sidebar.checkbox("Check for Invalid Categories in Categorical Columns", value=True)
+
+    # Check for missing values
+    if check_missing_values:
+        st.subheader("Missing Values")
+        missing_values = df.isnull().sum()
+        if missing_values.sum() == 0:
+            st.success("No missing values found in the dataset.")
+        else:
+            st.warning("Missing values found in the following columns:")
+            st.write(missing_values[missing_values > 0])
+            st.write("Consider handling missing values before proceeding with analysis.")
+
+    # Check for duplicates
+    if check_duplicates:
+        st.subheader("Duplicate Rows")
+        duplicate_rows = df.duplicated().sum()
+        if duplicate_rows == 0:
+            st.success("No duplicate rows found in the dataset.")
+        else:
+            st.warning(f"Found {duplicate_rows} duplicate rows.")
+            st.write("Consider removing duplicates before proceeding with analysis.")
+
+    # Check for inconsistent data types
+    if check_data_types:
+        st.subheader("Data Types")
+        data_types = df.dtypes
+        st.write("Data types of each column:")
+        st.write(data_types)
+        inconsistent_columns = [col for col in df.columns if df[col].dtype == "object" and df[col].str.contains("[^a-zA-Z0-9 ]").any()]
+        if inconsistent_columns:
+            st.warning("The following columns contain non-alphanumeric characters:")
+            st.write(inconsistent_columns)
+        else:
+            st.success("All columns have consistent data types.")
+
+    # Check for outliers in numerical columns
+    if check_outliers:
+        st.subheader("Outliers in Numerical Columns")
+        if len(numerical_columns) > 0:
+            for col in numerical_columns:
+                Q1 = df[col].quantile(0.25)
+                Q3 = df[col].quantile(0.75)
+                IQR = Q3 - Q1
+                lower_bound = Q1 - 1.5 * IQR
+                upper_bound = Q3 + 1.5 * IQR
+                outliers = df[(df[col] < lower_bound) | (df[col] > upper_bound)]
+                if outliers.shape[0] > 0:
+                    st.warning(f"Outliers found in column '{col}':")
+                    st.write(outliers)
+                else:
+                    st.success(f"No outliers found in column '{col}'.")
+        else:
+            st.info("No numerical columns found for outlier detection.")
+
+    # Check for unique values in categorical columns
+    if check_unique_values:
+        st.subheader("Unique Values in Categorical Columns")
+        for col in categorical_columns:
+            unique_values = df[col].nunique()
+            st.write(f"Column '{col}' has {unique_values} unique values.")
+            if unique_values > 20:
+                st.warning(f"Column '{col}' has a high number of unique values ({unique_values}). Consider grouping or binning.")
+
+    # Check value ranges for numerical columns
+    if check_value_ranges:
+        st.subheader("Value Ranges for Numerical Columns")
+        if len(numerical_columns) > 0:
+            for col in numerical_columns:
+                min_value = df[col].min()
+                max_value = df[col].max()
+                st.write(f"Column '{col}' has a range of [{min_value}, {max_value}].")
+                if min_value < 0 or max_value > 100:  # Example range check
+                    st.warning(f"Column '{col}' has values outside the expected range.")
+        else:
+            st.info("No numerical columns found for value range checks.")
+
+    # Check for invalid categories in categorical columns
+    if check_invalid_categories:
+        st.subheader("Invalid Categories in Categorical Columns")
+        for col in categorical_columns:
+            valid_categories = st.text_input(f"Enter valid categories for '{col}' (comma-separated):")
+            if valid_categories:
+                valid_categories = [cat.strip() for cat in valid_categories.split(",")]
+                invalid_categories = df[~df[col].isin(valid_categories)][col].unique()
+                if len(invalid_categories) > 0:
+                    st.warning(f"Invalid categories found in column '{col}':")
+                    st.write(invalid_categories)
+                else:
+                    st.success(f"No invalid categories found in column '{col}'.")
 
 elif options == "Visualizations":
     st.header("Visualizations")
@@ -107,6 +214,83 @@ elif options == "Visualizations":
 
 elif options == "Advanced Statistical Analysis":
     st.header("Advanced Statistical Analysis")
+
+    # Reference Table for Statistical Tests and Metrics
+    st.subheader("Reference Table for Statistical Tests and Metrics")
+    reference_data = {
+        "Test/Metric": [
+            "Cronbach's Alpha",
+            "Average Variance Extracted (AVE)",
+            "Cramér's V",
+            "p-value",
+            "Likelihood Ratio Test (p-value)",
+            "Permutation Test (p-value)"
+        ],
+        "Threshold/Interpretation": [
+            "> 0.7: Good internal consistency",
+            "> 0.5: Acceptable convergent validity",
+            "0.0-0.15: Weak association, 0.15-0.25: Moderate association, > 0.25: Strong association",
+            "< 0.05: Statistically significant",
+            "< 0.05: Models are significantly different",
+            "< 0.05: Correlation is statistically significant"
+        ]
+    }
+    reference_df = pd.DataFrame(reference_data)
+    st.table(reference_df)
+
+    # Reliability (Cronbach's Alpha)
+    st.subheader("Reliability Analysis (Cronbach's Alpha)")
+    st.write("Measures internal consistency of the survey questions.")
+    
+    # Select columns for Cronbach's Alpha
+    selected_columns = st.multiselect(
+        "Select columns for reliability analysis:",
+        df.columns,
+        default=categorical_columns[:5]  # Default to first 5 categorical columns
+    )
+    
+    if st.button("Calculate Cronbach's Alpha"):
+        if len(selected_columns) >= 2:
+            # Calculate Cronbach's Alpha
+            alpha = cronbach_alpha(df[selected_columns].apply(LabelEncoder().fit_transform))[0]
+            st.write(f"Cronbach's Alpha: {alpha:.3f}")
+            if alpha > 0.7:
+                st.success("The selected columns have good internal consistency (Cronbach's Alpha > 0.7).")
+            else:
+                st.warning("The selected columns have low internal consistency (Cronbach's Alpha ≤ 0.7).")
+        else:
+            st.error("Please select at least two columns for reliability analysis.")
+
+    # Validity (Convergent Validity - AVE)
+    st.subheader("Validity Analysis (Convergent Validity - AVE)")
+    st.write("Assesses the extent to which related variables correlate.")
+    
+    # Select columns for Convergent Validity
+    selected_columns_validity = st.multiselect(
+        "Select columns for validity analysis:",
+        df.columns,
+        default=categorical_columns[:5]  # Default to first 5 categorical columns
+    )
+    
+    if st.button("Calculate Convergent Validity (AVE)"):
+        if len(selected_columns_validity) >= 2:
+            # Encode categorical data
+            df_encoded = df[selected_columns_validity].apply(LabelEncoder().fit_transform)
+            
+            # Perform Factor Analysis
+            fa = FactorAnalyzer(n_factors=1, rotation=None)  # Single factor for AVE
+            fa.fit(df_encoded)
+            
+            # Calculate AVE
+            loadings = fa.loadings_
+            ave = np.mean(loadings**2)
+            st.write(f"Average Variance Extracted (AVE): {ave:.3f}")
+            if ave > 0.5:
+                st.success("The selected columns have acceptable convergent validity (AVE > 0.5).")
+            else:
+                st.warning("The selected columns have low convergent validity (AVE ≤ 0.5).")
+        else:
+            st.error("Please select at least two columns for validity analysis.")
 
     # Chi-Squared Test
     st.subheader("Chi-Squared Test for Independence")
@@ -313,32 +497,118 @@ elif options == "Advanced Statistical Analysis":
 def create_pdf_report(plot_images, output_path):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
     
-    # Add title
+    # Add a title page
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 16)
     pdf.cell(200, 10, txt="Survey Data Analysis Report", ln=True, align="C")
+    pdf.ln(10)
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(200, 10, txt=f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align="C")
+    pdf.ln(20)
+    pdf.cell(200, 10, txt="Prepared by: [Dr. Mohamed Helmy]", ln=True, align="C")
+    
+    # Add a table of contents
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(200, 10, txt="Table of Contents", ln=True, align="L")
+    pdf.ln(10)
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(200, 10, txt="1. Overview", ln=True, align="L")
+    pdf.cell(200, 10, txt="2. Data Validation", ln=True, align="L")
+    pdf.cell(200, 10, txt="3. Visualizations", ln=True, align="L")
+    pdf.cell(200, 10, txt="4. Advanced Statistical Analysis", ln=True, align="L")
     
     # Add overview section
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(200, 10, txt="1. Overview", ln=True, align="L")
     pdf.ln(10)
-    pdf.cell(200, 10, txt="Overview", ln=True, align="L")
-    pdf.ln(10)
+    pdf.set_font("Arial", "", 12)
+    
+    # Add dataset shape
     pdf.multi_cell(0, 10, txt=f"Shape of the dataset: {df.shape}")
     pdf.ln(5)
+    
+    # Add summary statistics
     pdf.multi_cell(0, 10, txt="Summary statistics:")
     pdf.ln(5)
-    summary_stats = df.describe(include="all").to_string()
-    pdf.multi_cell(0, 10, txt=summary_stats.encode('latin-1', 'replace').decode('latin-1'))
+    
+    # Format summary statistics as a table
+    summary_stats = df.describe(include="all").T  # Transpose for better readability
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(40, 10, txt="Column", border=1)
+    pdf.cell(30, 10, txt="Count", border=1)
+    pdf.cell(30, 10, txt="Mean", border=1)
+    pdf.cell(30, 10, txt="Std Dev", border=1)
+    pdf.cell(30, 10, txt="Min", border=1)
+    pdf.cell(30, 10, txt="25%", border=1)
+    pdf.cell(30, 10, txt="50%", border=1)
+    pdf.cell(30, 10, txt="75%", border=1)
+    pdf.cell(30, 10, txt="Max", border=1)
+    pdf.ln()
+    
+    pdf.set_font("Arial", "", 12)
+    for index, row in summary_stats.iterrows():
+        # Replace or remove unsupported Unicode characters in the column name
+        index_cleaned = index.encode("latin-1", errors="replace").decode("latin-1")
+        
+        pdf.cell(40, 10, txt=index_cleaned, border=1)
+        
+        # Handle 'count'
+        count_value = row['count'] if 'count' in row and pd.notna(row['count']) else "N/A"
+        pdf.cell(30, 10, txt=str(count_value), border=1)
+        
+        # Handle 'mean'
+        mean_value = row['mean'] if 'mean' in row and pd.notna(row['mean']) else "N/A"
+        pdf.cell(30, 10, txt=str(mean_value), border=1)
+        
+        # Handle 'std'
+        std_value = row['std'] if 'std' in row and pd.notna(row['std']) else "N/A"
+        pdf.cell(30, 10, txt=str(std_value), border=1)
+        
+        # Handle 'min'
+        min_value = row['min'] if 'min' in row and pd.notna(row['min']) else "N/A"
+        pdf.cell(30, 10, txt=str(min_value), border=1)
+        
+        # Handle '25%'
+        p25_value = row['25%'] if '25%' in row and pd.notna(row['25%']) else "N/A"
+        pdf.cell(30, 10, txt=str(p25_value), border=1)
+        
+        # Handle '50%'
+        p50_value = row['50%'] if '50%' in row and pd.notna(row['50%']) else "N/A"
+        pdf.cell(30, 10, txt=str(p50_value), border=1)
+        
+        # Handle '75%'
+        p75_value = row['75%'] if '75%' in row and pd.notna(row['75%']) else "N/A"
+        pdf.cell(30, 10, txt=str(p75_value), border=1)
+        
+        # Handle 'max'
+        max_value = row['max'] if 'max' in row and pd.notna(row['max']) else "N/A"
+        pdf.cell(30, 10, txt=str(max_value), border=1)
+        
+        pdf.ln()
     
     # Add visualizations section
     pdf.add_page()
-    pdf.cell(200, 10, txt="Visualizations", ln=True, align="L")
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(200, 10, txt="3. Visualizations", ln=True, align="L")
     for img_path in plot_images:
         pdf.ln(10)
         pdf.image(img_path, x=10, w=180)
+        pdf.ln(10)
+        pdf.cell(200, 10, txt=f"Figure: {os.path.basename(img_path)}", ln=True, align="L")
     
     # Save the PDF
     pdf.output(output_path)
+
+# Function to create a download link for the PDF
+def create_download_link(pdf_path, filename):
+    with open(pdf_path, "rb") as f:
+        pdf_data = f.read()
+    b64 = base64.b64encode(pdf_data).decode()
+    href = f'<a href="data:application/octet-stream;base64,{b64}" download="{filename}">Download PDF Report</a>'
+    return href
 
 # Export cleaned data and analysis results to PDF
 st.sidebar.header("Export")
@@ -350,5 +620,6 @@ if st.sidebar.button("Export Cleaned Data and Analysis"):
     pdf_output_path = "survey_analysis_report.pdf"
     create_pdf_report(plot_images, pdf_output_path)
     
+    # Provide download link for the PDF
     st.sidebar.success(f"Cleaned data saved as {cleaned_file_path}")
-    st.sidebar.success(f"Analysis report saved as {pdf_output_path}")
+    st.sidebar.markdown(create_download_link(pdf_output_path, "survey_analysis_report.pdf"), unsafe_allow_html=True)
