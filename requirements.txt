@@ -10,3 +10,5 @@ plotly
 prince
 factor-analyzer
 kaleido
+prince
+pingouin
