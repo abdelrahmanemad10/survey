@@ -1,9 +1,33 @@
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report
 import streamlit as st
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.metrics import accuracy_score
+from sklearn.ensemble import RandomForestClassifier
+from imblearn.over_sampling import SMOTE
+import time
+import matplotlib.pyplot as plt
+import textwrap
+
+# Set Streamlit page configuration (MUST BE THE FIRST STREAMLIT COMMAND)
+st.set_page_config(page_title="AI Strategy Recommendation", layout="wide")
+
+# Custom CSS for styling
+st.markdown(
+    """
+    <style>
+    .main { background-color: #f4f4f9; }
+    .sidebar .sidebar-content { background-color: #e8e8ef; }
+    .stButton>button { border-radius: 5px; background-color: #4CAF50; color: white; }
+    .stProgress > div > div > div { background-color: #4CAF50; }
+    .stExpander > div { background-color: #ffffff; border-radius: 5px; padding: 10px; }
+    .stMarkdown h1 { color: #4CAF50; }
+    .stMarkdown h2 { color: #2E86C1; }
+    .stMarkdown h3 { color: #D35400; }
+    </style>
+    """, unsafe_allow_html=True
+)
 
 # Load the data
 df = pd.read_csv('./Survey.csv')
@@ -26,132 +50,122 @@ columns = [
 df = df[columns]
 df.dropna(inplace=True)
 
-# Encode categorical variables
-label_encoders = {}
-for column in df.columns:
-    le = LabelEncoder()
-    df[column] = le.fit_transform(df[column])
-    label_encoders[column] = le
-
+# Separate features and target
 X = df.drop('If you could prioritize one strategy, which would it be?', axis=1)
 y = df['If you could prioritize one strategy, which would it be?']
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-model = RandomForestClassifier(random_state=42)
-model.fit(X_train, y_train)
+# Encode categorical variables
+categorical_cols = [
+    'In which country is your laboratory or organization based ?',
+    'How many years of experience do you have in your field?',
+    'What is your role in the organization? ',
+    'How familiar are you with AI technologies in laboratory operations? ',
+    'To what extent is AI currently used in your laboratory operations? ',
+    'To what extent do the following barriers affect AI implementation in your laboratory? [Financial constraints]',
+    'To what extent do the following barriers affect AI implementation in your laboratory? [Ethical concerns (e.g., data privacy, transparency)]',
+    'To what extent do the following barriers affect AI implementation in your laboratory? [Staff resistance to change]',
+    'To what extent do the following barriers affect AI implementation in your laboratory? [Lack of training and education]',
+    'To what extent do the following barriers affect AI implementation in your laboratory? [Regulatory compliance issues]'
+]
 
-def recommend_strategy(input_data):
-    input_df = pd.DataFrame([input_data])
-    for column in input_df.columns:
-        if input_df[column][0] not in label_encoders[column].classes_:
-            st.error(f"Value '{input_df[column][0]}' for '{column}' is not recognized. Please select a valid value.")
-            return None
-        input_df[column] = label_encoders[column].transform(input_df[column])
-    prediction = model.predict(input_df)
-    return label_encoders['If you could prioritize one strategy, which would it be?'].inverse_transform(prediction)[0]
-
-# New function to display user inputs
-def display_user_inputs(user_inputs):
-    st.markdown("## 📝 **Summary of Your Inputs**")
-
-    # General Information Section
-    st.markdown("""
-        <h3 style="color: #4CAF50;"> General Information</h3>
-        <ul>
-            <li><strong>Country:</strong> <span style="color: #D35400;">{}</span></li>
-            <li><strong>Years of Experience:</strong> <span style="color: #D35400;">{}</span></li>
-            <li><strong>Role:</strong> <span style="color: #D35400;">{}</span></li>
-            <li><strong>Familiarity with AI:</strong> <span style="color: #D35400;">{}</span></li>
-            <li><strong>AI Usage in Operations:</strong> <span style="color: #D35400;">{}</span></li>
-        </ul>
-    """.format(
-        user_inputs['In which country is your laboratory or organization based ?'],
-        user_inputs['How many years of experience do you have in your field?'],
-        user_inputs['What is your role in the organization? '],
-        user_inputs['How familiar are you with AI technologies in laboratory operations? '],
-        user_inputs['To what extent is AI currently used in your laboratory operations? ']
-    ), unsafe_allow_html=True)
-
-    # Barriers Section styled similarly
-    st.markdown("""
-        <h3 style="color: #4CAF50;"> Barriers to AI Implementation</h3>
-        <ul>
-            <li><strong> Financial Constraints:</strong> <span style="color: #D35400;">{}</span></li>
-            <li><strong> Ethical Concerns:</strong> <span style="color: #D35400;">{}</span></li>
-            <li><strong> Staff Resistance:</strong> <span style="color: #D35400;">{}</span></li>
-            <li><strong> Lack of Training:</strong> <span style="color: #D35400;">{}</span></li>
-            <li><strong> Regulatory Compliance:</strong> <span style="color: #D35400;">{}</span></li>
-        </ul>
-    """.format(
-        user_inputs['To what extent do the following barriers affect AI implementation in your laboratory? [Financial constraints]'],
-        user_inputs['To what extent do the following barriers affect AI implementation in your laboratory? [Ethical concerns (e.g., data privacy, transparency)]'],
-        user_inputs['To what extent do the following barriers affect AI implementation in your laboratory? [Staff resistance to change]'],
-        user_inputs['To what extent do the following barriers affect AI implementation in your laboratory? [Lack of training and education]'],
-        user_inputs['To what extent do the following barriers affect AI implementation in your laboratory? [Regulatory compliance issues]']
-    ), unsafe_allow_html=True)
- 
-   
-
-# Streamlit UI
-st.set_page_config(page_title="AI Strategy Recommendation", layout="wide")
-
-st.title("AI Strategy Recommendation System")
-st.markdown(
-    """
-    <style>
-    .main { background-color: #f4f4f9; }
-    .sidebar .sidebar-content { background-color: #e8e8ef; }
-    .stButton>button { border-radius: 5px; background-color: #4CAF50; color: white; }
-    </style>
-    """, unsafe_allow_html=True
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('cat', OneHotEncoder(drop='first', handle_unknown='error'), categorical_cols)
+    ]
 )
 
+# Preprocess the data
+X_processed = preprocessor.fit_transform(X)
+
+# Handle class imbalance using SMOTE
+smote = SMOTE(random_state=42)
+X_resampled, y_resampled = smote.fit_resample(X_processed, y)
+
+# Split the data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X_resampled, y_resampled, test_size=0.2, random_state=42)
+
+# Hyperparameter tuning for RandomForestClassifier
+rf = RandomForestClassifier(random_state=42)
+
+param_grid = {
+    'n_estimators': [100, 200, 300],
+    'max_depth': [None, 10, 20, 30],
+    'min_samples_split': [2, 5, 10]
+}
+
+grid_search = GridSearchCV(rf, param_grid, cv=5, scoring='accuracy', n_jobs=-1)
+grid_search.fit(X_train, y_train)
+
+best_rf = grid_search.best_estimator_
+
+# Evaluate the model
+y_pred = best_rf.predict(X_test)
+accuracy = accuracy_score(y_test, y_pred)
+
+# Streamlit UI
+st.title("AI Strategy Recommendation System")
+st.markdown("""
+    Welcome to the **AI Strategy Recommendation System**!  
+    This tool helps you identify the best strategy for implementing AI in your laboratory based on your inputs.  
+    Fill out the form below to get started.
+""")
+
+# Sidebar for navigation
+st.sidebar.header("Navigation")
+st.sidebar.markdown("""
+    - **Home**: Overview of the tool.
+    - **Input Parameters**: Provide your inputs.
+    - **Results**: View recommendations and insights.
+""")
+
+# Input Parameters
 st.sidebar.header("Input Parameters")
 
 def user_input_features():
-    tabs = st.sidebar.tabs(["General Information", "Challenges"])
-    with tabs[0]:
+    with st.sidebar.expander("General Information"):
         country = st.selectbox(
             'Country',
-            label_encoders['In which country is your laboratory or organization based ?'].inverse_transform(df['In which country is your laboratory or organization based ?'].unique())
+            df['In which country is your laboratory or organization based ?'].unique()
         )
         experience = st.selectbox(
             'Years of Experience',
-            label_encoders['How many years of experience do you have in your field?'].inverse_transform(df['How many years of experience do you have in your field?'].unique())
+            df['How many years of experience do you have in your field?'].unique()
         )
         role = st.selectbox(
             'Role in the Organization',
-            label_encoders['What is your role in the organization? '].inverse_transform(df['What is your role in the organization? '].unique())
+            df['What is your role in the organization? '].unique()
         )
         familiarity = st.selectbox(
             'Familiarity with AI',
-            label_encoders['How familiar are you with AI technologies in laboratory operations? '].inverse_transform(df['How familiar are you with AI technologies in laboratory operations? '].unique())
+            df['How familiar are you with AI technologies in laboratory operations? '].unique()
         )
         ai_usage = st.selectbox(
             'Current AI Usage',
-            label_encoders['To what extent is AI currently used in your laboratory operations? '].inverse_transform(df['To what extent is AI currently used in your laboratory operations? '].unique())
+            df['To what extent is AI currently used in your laboratory operations? '].unique()
         )
-    with tabs[1]:
+
+    with st.sidebar.expander("Challenges"):
         financial_constraints = st.selectbox(
             'Financial Constraints',
-            label_encoders['To what extent do the following barriers affect AI implementation in your laboratory? [Financial constraints]'].inverse_transform(df['To what extent do the following barriers affect AI implementation in your laboratory? [Financial constraints]'].unique())
+            df['To what extent do the following barriers affect AI implementation in your laboratory? [Financial constraints]'].unique()
         )
         ethical_concerns = st.selectbox(
             'Ethical Concerns',
-            label_encoders['To what extent do the following barriers affect AI implementation in your laboratory? [Ethical concerns (e.g., data privacy, transparency)]'].inverse_transform(df['To what extent do the following barriers affect AI implementation in your laboratory? [Ethical concerns (e.g., data privacy, transparency)]'].unique())
+            df['To what extent do the following barriers affect AI implementation in your laboratory? [Ethical concerns (e.g., data privacy, transparency)]'].unique()
         )
         staff_resistance = st.selectbox(
             'Staff Resistance',
-            label_encoders['To what extent do the following barriers affect AI implementation in your laboratory? [Staff resistance to change]'].inverse_transform(df['To what extent do the following barriers affect AI implementation in your laboratory? [Staff resistance to change]'].unique())
+            df['To what extent do the following barriers affect AI implementation in your laboratory? [Staff resistance to change]'].unique()
         )
         lack_of_training = st.selectbox(
             'Lack of Training',
-            label_encoders['To what extent do the following barriers affect AI implementation in your laboratory? [Lack of training and education]'].inverse_transform(df['To what extent do the following barriers affect AI implementation in your laboratory? [Lack of training and education]'].unique())
+            df['To what extent do the following barriers affect AI implementation in your laboratory? [Lack of training and education]'].unique()
         )
         regulatory_compliance = st.selectbox(
             'Regulatory Compliance',
-            label_encoders['To what extent do the following barriers affect AI implementation in your laboratory? [Regulatory compliance issues]'].inverse_transform(df['To what extent do the following barriers affect AI implementation in your laboratory? [Regulatory compliance issues]'].unique())
+            df['To what extent do the following barriers affect AI implementation in your laboratory? [Regulatory compliance issues]'].unique()
         )
+
     return {
         'In which country is your laboratory or organization based ?': country,
         'How many years of experience do you have in your field?': experience,
@@ -165,14 +179,48 @@ def user_input_features():
         'To what extent do the following barriers affect AI implementation in your laboratory? [Regulatory compliance issues]': regulatory_compliance
     }
 
+# Get user inputs
 input_data = user_input_features()
-st.subheader("User Input Parameters")
+
+# Display user inputs
+st.subheader("Your Inputs")
 st.json(input_data)
 
-# Display the user inputs
-display_user_inputs(input_data)
+# Feature Importance Analysis
+importances = best_rf.feature_importances_
+feature_names = preprocessor.get_feature_names_out()
 
+# Create a DataFrame for visualization
+feature_importance_df = pd.DataFrame({
+    'Feature': feature_names,
+    'Importance': importances
+}).sort_values(by='Importance', ascending=False)
+
+# Wrap feature names for better readability
+feature_importance_df['Feature'] = feature_importance_df['Feature'].apply(
+    lambda x: '\n'.join(textwrap.wrap(x, width=30))  # Adjust width as needed
+)
+
+# Plot feature importances
+st.subheader("Feature Importance")
+fig, ax = plt.subplots(figsize=(10, len(feature_importance_df) * 0.5))  # Adjust height dynamically
+ax.barh(feature_importance_df['Feature'], feature_importance_df['Importance'])
+ax.set_xlabel('Importance')
+ax.set_title('Feature Importance')
+plt.xticks(fontsize=8)  # Adjust font size
+plt.yticks(fontsize=8)  # Adjust font size
+st.pyplot(fig)
+
+# Function to recommend strategy
+def recommend_strategy(input_data):
+    input_df = pd.DataFrame([input_data])
+    input_transformed = preprocessor.transform(input_df)
+    prediction = best_rf.predict(input_transformed)
+    return prediction[0]
+
+# Display the user inputs
 if st.button("Get Recommendation"):
-    recommended_strategy = recommend_strategy(input_data)
-    if recommended_strategy:
+    with st.spinner("Generating recommendation..."):
+        time.sleep(2)  # Simulate processing time
+        recommended_strategy = recommend_strategy(input_data)
         st.success(f"Recommended Strategy: {recommended_strategy}")
