@@ -12,3 +12,9 @@ factor-analyzer
 kaleido
 prince
 pingouin
+pandas
+streamlit
+scikit-learn
+imbalanced-learn
+matplotlib
+textwrap3
