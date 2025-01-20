@@ -17,47 +17,196 @@ from sklearn.utils import resample
 from pingouin import cronbach_alpha
 import base64
 from datetime import datetime
+from io import BytesIO
 
 # Load the dataset
-file_path = "Survey.csv"
-df = pd.read_csv(file_path)
-
-# Columns to exclude
-exclude_columns = ["Username", "Email Address", "Timestamp"]
+@st.cache
+def load_data(file_path):
+    return pd.read_csv("Survey.csv")
 
 # Preprocess the data
-try:
-    df["Timestamp"] = pd.to_datetime(df["Timestamp"], format="%Y/%m/%d %I:%M:%S %p %Z", errors="coerce")
-except:
-    df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce")  # Fallback to individual parsing
+def preprocess_data(df, exclude_columns):
+    try:
+        df["Timestamp"] = pd.to_datetime(df["Timestamp"], format="%Y/%m/%d %I:%M:%S %p %Z", errors="coerce")
+    except:
+        df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce")  # Fallback to individual parsing
 
-# Drop the excluded columns
-df.drop(columns=exclude_columns, inplace=True, errors='ignore')
+    df.drop(columns=exclude_columns, inplace=True, errors='ignore')
+    categorical_columns = [col for col in df.columns if df[col].dtype == "object"]
+    numerical_columns = df.select_dtypes(include=[np.number]).columns
+    return df, categorical_columns, numerical_columns
 
-categorical_columns = [col for col in df.columns if df[col].dtype == "object"]
-numerical_columns = df.select_dtypes(include=[np.number]).columns
+# Function to calculate Cronbach's Alpha
+def calculate_cronbach_alpha(data):
+    """Calculate Cronbach's Alpha for a DataFrame."""
+    k = data.shape[1]
+    if k < 2:
+        return None  # Cronbach's Alpha requires at least 2 columns
+    item_variances = data.var(axis=0, ddof=1)
+    total_variance = data.sum(axis=1).var(ddof=1)
+    if total_variance == 0:
+        return None  # Avoid division by zero
+    alpha = (k / (k - 1)) * (1 - item_variances.sum() / total_variance)
+    return alpha
+
+# Function to calculate AVE (Average Variance Extracted)
+def calculate_ave(data):
+    """Calculate AVE for a DataFrame."""
+    if data.shape[1] < 2:
+        return None  # AVE requires at least 2 columns
+    fa = FactorAnalyzer(n_factors=1, rotation=None)
+    fa.fit(data)
+    loadings = fa.loadings_
+    ave = np.mean(loadings**2)
+    return ave
+
+# Function to perform sensitivity analysis
+def sensitivity_analysis(df, selected_columns):
+    """Analyze the impact of excluding each column on overall metrics."""
+    overall_alpha = calculate_cronbach_alpha(df[selected_columns])
+    overall_ave = calculate_ave(df[selected_columns])
+
+    results = []
+    for col in selected_columns:
+        excluded_columns = [c for c in selected_columns if c != col]
+        alpha_excluded = calculate_cronbach_alpha(df[excluded_columns])
+        ave_excluded = calculate_ave(df[excluded_columns])
+        alpha_impact = abs(overall_alpha - alpha_excluded) if overall_alpha and alpha_excluded else None
+        ave_impact = abs(overall_ave - ave_excluded) if overall_ave and ave_excluded else None
+        results.append({
+            "Column": col,
+            "Alpha Impact": alpha_impact,
+            "AVE Impact": ave_impact
+        })
+
+    return pd.DataFrame(results)
+
+# Function to encode categorical data
+def encode_data(df):
+    """Encode categorical data using LabelEncoder."""
+    encoded_df = df.copy()
+    for col in encoded_df.columns:
+        if encoded_df[col].dtype == "object":
+            encoded_df[col] = LabelEncoder().fit_transform(encoded_df[col].astype(str))
+    return encoded_df
+
+# Function to export results to Excel
+def export_to_excel(results):
+    """Export results to an Excel file."""
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        results.to_excel(writer, index=False, sheet_name="Results")
+    output.seek(0)
+    return output
+
+# Streamlit UI for Reliability and Validity Analysis
+def reliability_and_validity_analysis(df):
+    st.title("Reliability and Validity Analysis")
+
+    # Encode categorical data
+    encoded_df = encode_data(df)
+
+    # Initialize session state for column selection
+    if "selected_columns" not in st.session_state:
+        st.session_state.selected_columns = list(encoded_df.columns)
+
+    # Display and allow column selection
+    st.sidebar.header("Select Columns for Analysis")
+    selected_columns = st.sidebar.multiselect(
+        "Choose columns:",
+        options=list(encoded_df.columns),
+        default=st.session_state.selected_columns
+    )
+    st.session_state.selected_columns = selected_columns
+
+    # Initialize results DataFrame
+    results = pd.DataFrame(columns=["Column", "Cronbach's Alpha", "AVE"])
+
+    # Calculate Cronbach's Alpha and AVE for selected columns
+    for column in selected_columns:
+        alpha = calculate_cronbach_alpha(encoded_df[[column]])
+        ave = calculate_ave(encoded_df[[column]])
+        alpha = "Not applicable" if alpha is None else alpha
+        ave = "Not applicable" if ave is None else ave
+        new_row = pd.DataFrame({"Column": [column], "Cronbach's Alpha": [alpha], "AVE": [ave]})
+        results = pd.concat([results, new_row], ignore_index=True)
+
+    # Calculate overall Cronbach's Alpha and AVE for selected columns
+    if len(selected_columns) > 1:
+        overall_alpha = calculate_cronbach_alpha(encoded_df[selected_columns])
+        overall_ave = calculate_ave(encoded_df[selected_columns])
+    else:
+        overall_alpha, overall_ave = None, None
+
+    overall_alpha = "Not applicable" if overall_alpha is None else overall_alpha
+    overall_ave = "Not applicable" if overall_ave is None else overall_ave
+    new_row = pd.DataFrame({"Column": ["Overall"], "Cronbach's Alpha": [overall_alpha], "AVE": [overall_ave]})
+    results = pd.concat([results, new_row], ignore_index=True)
+
+    # Display results
+    st.subheader("Reliability and Validity Results")
+    st.write(results)
+
+    # Perform sensitivity analysis if more than one column is selected
+    if len(selected_columns) > 1:
+        st.subheader("Column Sensitivity Analysis")
+        sensitivity_results = sensitivity_analysis(encoded_df, selected_columns)
+        st.write(sensitivity_results)
+
+    # Export results to Excel
+    st.subheader("Export Results")
+    if st.button("Export to Excel"):
+        excel_file = export_to_excel(results)
+        b64 = base64.b64encode(excel_file.read()).decode()
+        href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="reliability_validity_results.xlsx">Download Excel File</a>'
+        st.markdown(href, unsafe_allow_html=True)
 
 # Streamlit app
-st.title("Survey Data Analysis")
+def main():
+    st.title("Survey Data Analysis")
 
-# Sidebar for navigation
-st.sidebar.title("Navigation")
-options = st.sidebar.radio(
-    "Select an option:",
-    ["Overview", "Data Validation", "Visualizations", "Advanced Statistical Analysis"]
-)
+    # Load and preprocess data
+    file_path = "Survey.csv"
+    exclude_columns = ["Username", "Email Address", "Timestamp"]
+    df = load_data(file_path)
+    df, categorical_columns, numerical_columns = preprocess_data(df, exclude_columns)
 
-# Initialize a list to store plot images
-plot_images = []
+    # Sidebar for navigation
+    st.sidebar.title("Navigation")
+    options = st.sidebar.radio(
+        "Select an option:",
+        ["Overview", "Data Validation", "Visualizations", "Advanced Statistical Analysis", "Reliability and Validity Analysis"]
+    )
 
-if options == "Overview":
+    # Initialize a list to store plot images
+    plot_images = []
+
+    if options == "Overview":
+        show_overview(df)
+    elif options == "Data Validation":
+        show_data_validation(df, categorical_columns, numerical_columns)
+    elif options == "Visualizations":
+        show_visualizations(df, categorical_columns, plot_images)
+    elif options == "Advanced Statistical Analysis":
+        show_advanced_statistical_analysis(df, categorical_columns, plot_images)
+    elif options == "Reliability and Validity Analysis":
+        reliability_and_validity_analysis(df)
+
+    # Export cleaned data and analysis results to PDF
+    st.sidebar.header("Export")
+    if st.sidebar.button("Export Cleaned Data and Analysis"):
+        export_data_and_analysis(df, plot_images)
+
+# Function to display dataset overview
+def show_overview(df):
     st.header("Dataset Overview")
     st.write(df.head())
     st.write("Shape of the dataset:", df.shape)
     st.write("Summary statistics:")
     st.write(df.describe(include="all"))
 
-elif options == "Data Validation":
+# Function to display data validation
+def show_data_validation(df, categorical_columns, numerical_columns):
     st.header("Data Validation")
     st.write("This section checks for common data quality issues and provides user controls for validation.")
 
@@ -71,96 +220,112 @@ elif options == "Data Validation":
     check_value_ranges = st.sidebar.checkbox("Check Value Ranges for Numerical Columns", value=True)
     check_invalid_categories = st.sidebar.checkbox("Check for Invalid Categories in Categorical Columns", value=True)
 
-    # Check for missing values
     if check_missing_values:
-        st.subheader("Missing Values")
-        missing_values = df.isnull().sum()
-        if missing_values.sum() == 0:
-            st.success("No missing values found in the dataset.")
-        else:
-            st.warning("Missing values found in the following columns:")
-            st.write(missing_values[missing_values > 0])
-            st.write("Consider handling missing values before proceeding with analysis.")
-
-    # Check for duplicates
+        check_missing_values_func(df)
     if check_duplicates:
-        st.subheader("Duplicate Rows")
-        duplicate_rows = df.duplicated().sum()
-        if duplicate_rows == 0:
-            st.success("No duplicate rows found in the dataset.")
-        else:
-            st.warning(f"Found {duplicate_rows} duplicate rows.")
-            st.write("Consider removing duplicates before proceeding with analysis.")
-
-    # Check for inconsistent data types
+        check_duplicates_func(df)
     if check_data_types:
-        st.subheader("Data Types")
-        data_types = df.dtypes
-        st.write("Data types of each column:")
-        st.write(data_types)
-        inconsistent_columns = [col for col in df.columns if df[col].dtype == "object" and df[col].str.contains("[^a-zA-Z0-9 ]").any()]
-        if inconsistent_columns:
-            st.warning("The following columns contain non-alphanumeric characters:")
-            st.write(inconsistent_columns)
-        else:
-            st.success("All columns have consistent data types.")
-
-    # Check for outliers in numerical columns
+        check_data_types_func(df)
     if check_outliers:
-        st.subheader("Outliers in Numerical Columns")
-        if len(numerical_columns) > 0:
-            for col in numerical_columns:
-                Q1 = df[col].quantile(0.25)
-                Q3 = df[col].quantile(0.75)
-                IQR = Q3 - Q1
-                lower_bound = Q1 - 1.5 * IQR
-                upper_bound = Q3 + 1.5 * IQR
-                outliers = df[(df[col] < lower_bound) | (df[col] > upper_bound)]
-                if outliers.shape[0] > 0:
-                    st.warning(f"Outliers found in column '{col}':")
-                    st.write(outliers)
-                else:
-                    st.success(f"No outliers found in column '{col}'.")
-        else:
-            st.info("No numerical columns found for outlier detection.")
-
-    # Check for unique values in categorical columns
+        check_outliers_func(df, numerical_columns)
     if check_unique_values:
-        st.subheader("Unique Values in Categorical Columns")
-        for col in categorical_columns:
-            unique_values = df[col].nunique()
-            st.write(f"Column '{col}' has {unique_values} unique values.")
-            if unique_values > 20:
-                st.warning(f"Column '{col}' has a high number of unique values ({unique_values}). Consider grouping or binning.")
-
-    # Check value ranges for numerical columns
+        check_unique_values_func(df, categorical_columns)
     if check_value_ranges:
-        st.subheader("Value Ranges for Numerical Columns")
-        if len(numerical_columns) > 0:
-            for col in numerical_columns:
-                min_value = df[col].min()
-                max_value = df[col].max()
-                st.write(f"Column '{col}' has a range of [{min_value}, {max_value}].")
-                if min_value < 0 or max_value > 100:  # Example range check
-                    st.warning(f"Column '{col}' has values outside the expected range.")
-        else:
-            st.info("No numerical columns found for value range checks.")
-
-    # Check for invalid categories in categorical columns
+        check_value_ranges_func(df, numerical_columns)
     if check_invalid_categories:
-        st.subheader("Invalid Categories in Categorical Columns")
-        for col in categorical_columns:
-            valid_categories = st.text_input(f"Enter valid categories for '{col}' (comma-separated):")
-            if valid_categories:
-                valid_categories = [cat.strip() for cat in valid_categories.split(",")]
-                invalid_categories = df[~df[col].isin(valid_categories)][col].unique()
-                if len(invalid_categories) > 0:
-                    st.warning(f"Invalid categories found in column '{col}':")
-                    st.write(invalid_categories)
-                else:
-                    st.success(f"No invalid categories found in column '{col}'.")
+        check_invalid_categories_func(df, categorical_columns)
 
-elif options == "Visualizations":
+# Function to check for missing values
+def check_missing_values_func(df):
+    st.subheader("Missing Values")
+    missing_values = df.isnull().sum()
+    if missing_values.sum() == 0:
+        st.success("No missing values found in the dataset.")
+    else:
+        st.warning("Missing values found in the following columns:")
+        st.write(missing_values[missing_values > 0])
+        st.write("Consider handling missing values before proceeding with analysis.")
+
+# Function to check for duplicates
+def check_duplicates_func(df):
+    st.subheader("Duplicate Rows")
+    duplicate_rows = df.duplicated().sum()
+    if duplicate_rows == 0:
+        st.success("No duplicate rows found in the dataset.")
+    else:
+        st.warning(f"Found {duplicate_rows} duplicate rows.")
+        st.write("Consider removing duplicates before proceeding with analysis.")
+
+# Function to check for inconsistent data types
+def check_data_types_func(df):
+    st.subheader("Data Types")
+    data_types = df.dtypes
+    st.write("Data types of each column:")
+    st.write(data_types)
+    inconsistent_columns = [col for col in df.columns if df[col].dtype == "object" and df[col].str.contains("[^a-zA-Z0-9 ]").any()]
+    if inconsistent_columns:
+        st.warning("The following columns contain non-alphanumeric characters:")
+        st.write(inconsistent_columns)
+    else:
+        st.success("All columns have consistent data types.")
+
+# Function to check for outliers in numerical columns
+def check_outliers_func(df, numerical_columns):
+    st.subheader("Outliers in Numerical Columns")
+    if len(numerical_columns) > 0:
+        for col in numerical_columns:
+            Q1 = df[col].quantile(0.25)
+            Q3 = df[col].quantile(0.75)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - 1.5 * IQR
+            upper_bound = Q3 + 1.5 * IQR
+            outliers = df[(df[col] < lower_bound) | (df[col] > upper_bound)]
+            if outliers.shape[0] > 0:
+                st.warning(f"Outliers found in column '{col}':")
+                st.write(outliers)
+            else:
+                st.success(f"No outliers found in column '{col}'.")
+    else:
+        st.info("No numerical columns found for outlier detection.")
+
+# Function to check for unique values in categorical columns
+def check_unique_values_func(df, categorical_columns):
+    st.subheader("Unique Values in Categorical Columns")
+    for col in categorical_columns:
+        unique_values = df[col].nunique()
+        st.write(f"Column '{col}' has {unique_values} unique values.")
+        if unique_values > 20:
+            st.warning(f"Column '{col}' has a high number of unique values ({unique_values}). Consider grouping or binning.")
+
+# Function to check value ranges for numerical columns
+def check_value_ranges_func(df, numerical_columns):
+    st.subheader("Value Ranges for Numerical Columns")
+    if len(numerical_columns) > 0:
+        for col in numerical_columns:
+            min_value = df[col].min()
+            max_value = df[col].max()
+            st.write(f"Column '{col}' has a range of [{min_value}, {max_value}].")
+            if min_value < 0 or max_value > 100:  # Example range check
+                st.warning(f"Column '{col}' has values outside the expected range.")
+    else:
+        st.info("No numerical columns found for value range checks.")
+
+# Function to check for invalid categories in categorical columns
+def check_invalid_categories_func(df, categorical_columns):
+    st.subheader("Invalid Categories in Categorical Columns")
+    for col in categorical_columns:
+        valid_categories = st.text_input(f"Enter valid categories for '{col}' (comma-separated):")
+        if valid_categories:
+            valid_categories = [cat.strip() for cat in valid_categories.split(",")]
+            invalid_categories = df[~df[col].isin(valid_categories)][col].unique()
+            if len(invalid_categories) > 0:
+                st.warning(f"Invalid categories found in column '{col}':")
+                st.write(invalid_categories)
+            else:
+                st.success(f"No invalid categories found in column '{col}'.")
+
+# Function to display visualizations
+def show_visualizations(df, categorical_columns, plot_images):
     st.header("Visualizations")
 
     # Column selection for visualization
@@ -212,7 +377,8 @@ elif options == "Visualizations":
             fig.savefig(tmpfile.name)
             plot_images.append(tmpfile.name)
 
-elif options == "Advanced Statistical Analysis":
+# Function to display advanced statistical analysis
+def show_advanced_statistical_analysis(df, categorical_columns, plot_images):
     st.header("Advanced Statistical Analysis")
 
     # Reference Table for Statistical Tests and Metrics
@@ -237,60 +403,6 @@ elif options == "Advanced Statistical Analysis":
     }
     reference_df = pd.DataFrame(reference_data)
     st.table(reference_df)
-
-    # Reliability (Cronbach's Alpha)
-    st.subheader("Reliability Analysis (Cronbach's Alpha)")
-    st.write("Measures internal consistency of the survey questions.")
-    
-    # Select columns for Cronbach's Alpha
-    selected_columns = st.multiselect(
-        "Select columns for reliability analysis:",
-        df.columns,
-        default=categorical_columns[:5]  # Default to first 5 categorical columns
-    )
-    
-    if st.button("Calculate Cronbach's Alpha"):
-        if len(selected_columns) >= 2:
-            # Calculate Cronbach's Alpha
-            alpha = cronbach_alpha(df[selected_columns].apply(LabelEncoder().fit_transform))[0]
-            st.write(f"Cronbach's Alpha: {alpha:.3f}")
-            if alpha > 0.7:
-                st.success("The selected columns have good internal consistency (Cronbach's Alpha > 0.7).")
-            else:
-                st.warning("The selected columns have low internal consistency (Cronbach's Alpha ≤ 0.7).")
-        else:
-            st.error("Please select at least two columns for reliability analysis.")
-
-    # Validity (Convergent Validity - AVE)
-    st.subheader("Validity Analysis (Convergent Validity - AVE)")
-    st.write("Assesses the extent to which related variables correlate.")
-    
-    # Select columns for Convergent Validity
-    selected_columns_validity = st.multiselect(
-        "Select columns for validity analysis:",
-        df.columns,
-        default=categorical_columns[:5]  # Default to first 5 categorical columns
-    )
-    
-    if st.button("Calculate Convergent Validity (AVE)"):
-        if len(selected_columns_validity) >= 2:
-            # Encode categorical data
-            df_encoded = df[selected_columns_validity].apply(LabelEncoder().fit_transform)
-            
-            # Perform Factor Analysis
-            fa = FactorAnalyzer(n_factors=1, rotation=None)  # Single factor for AVE
-            fa.fit(df_encoded)
-            
-            # Calculate AVE
-            loadings = fa.loadings_
-            ave = np.mean(loadings**2)
-            st.write(f"Average Variance Extracted (AVE): {ave:.3f}")
-            if ave > 0.5:
-                st.success("The selected columns have acceptable convergent validity (AVE > 0.5).")
-            else:
-                st.warning("The selected columns have low convergent validity (AVE ≤ 0.5).")
-        else:
-            st.error("Please select at least two columns for validity analysis.")
 
     # Chi-Squared Test
     st.subheader("Chi-Squared Test for Independence")
@@ -610,9 +722,8 @@ def create_download_link(pdf_path, filename):
     href = f'<a href="data:application/octet-stream;base64,{b64}" download="{filename}">Download PDF Report</a>'
     return href
 
-# Export cleaned data and analysis results to PDF
-st.sidebar.header("Export")
-if st.sidebar.button("Export Cleaned Data and Analysis"):
+# Function to export cleaned data and analysis results
+def export_data_and_analysis(df, plot_images):
     cleaned_file_path = "cleaned_survey_data.csv"
     df.to_csv(cleaned_file_path, index=False)
     
@@ -623,3 +734,6 @@ if st.sidebar.button("Export Cleaned Data and Analysis"):
     # Provide download link for the PDF
     st.sidebar.success(f"Cleaned data saved as {cleaned_file_path}")
     st.sidebar.markdown(create_download_link(pdf_output_path, "survey_analysis_report.pdf"), unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()
