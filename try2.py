@@ -128,7 +128,21 @@ dot_data = export_graphviz(
 st.graphviz_chart(dot_data)
 
 st.markdown(f"Showing Tree {tree_index} of {len(best_rf.estimators_)} in the Random Forest.")
+# Save the graph to a file
+    graph_path = f"tree_{tree_index}.png"
+    graph.render(graph_path, format="png")
 
+    # Provide download link
+    with open(graph_path + ".png", "rb") as file:
+        st.download_button(
+            label="Download Tree Graph",
+            data=file,
+            file_name=f"random_forest_tree_{tree_index}.png",
+            mime="image/png"
+        )
+
+    # Remove the file after serving
+    os.remove(graph_path + ".png")
 # Streamlit UI
 st.title("AI Strategy Recommendation System")
 st.markdown("""
