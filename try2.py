@@ -9,8 +9,11 @@ from imblearn.over_sampling import SMOTE
 import time
 import matplotlib.pyplot as plt
 import textwrap
+import numpy as np
+import graphviz
+from sklearn.tree import export_graphviz
 
-# Set Streamlit page configuration (MUST BE THE FIRST STREAMLIT COMMAND)
+# Set Streamlit page configuration
 st.set_page_config(page_title="AI Strategy Recommendation", layout="wide")
 
 # Custom CSS for styling
@@ -55,18 +58,7 @@ X = df.drop('If you could prioritize one strategy, which would it be?', axis=1)
 y = df['If you could prioritize one strategy, which would it be?']
 
 # Encode categorical variables
-categorical_cols = [
-    'In which country is your laboratory or organization based ?',
-    'How many years of experience do you have in your field?',
-    'What is your role in the organization? ',
-    'How familiar are you with AI technologies in laboratory operations? ',
-    'To what extent is AI currently used in your laboratory operations? ',
-    'To what extent do the following barriers affect AI implementation in your laboratory? [Financial constraints]',
-    'To what extent do the following barriers affect AI implementation in your laboratory? [Ethical concerns (e.g., data privacy, transparency)]',
-    'To what extent do the following barriers affect AI implementation in your laboratory? [Staff resistance to change]',
-    'To what extent do the following barriers affect AI implementation in your laboratory? [Lack of training and education]',
-    'To what extent do the following barriers affect AI implementation in your laboratory? [Regulatory compliance issues]'
-]
+categorical_cols = X.columns.tolist()
 
 preprocessor = ColumnTransformer(
     transformers=[
@@ -88,12 +80,12 @@ X_train, X_test, y_train, y_test = train_test_split(X_resampled, y_resampled, te
 rf = RandomForestClassifier(random_state=42)
 
 param_grid = {
-    'n_estimators': [100, 200, 300],
-    'max_depth': [None, 10, 20, 30],
-    'min_samples_split': [2, 5, 10]
+    'n_estimators': [100, 200],
+    'max_depth': [None, 10, 20],
+    'min_samples_split': [2, 5]
 }
 
-grid_search = GridSearchCV(rf, param_grid, cv=5, scoring='accuracy', n_jobs=-1)
+grid_search = GridSearchCV(rf, param_grid, cv=3, scoring='accuracy', n_jobs=-1)
 grid_search.fit(X_train, y_train)
 
 best_rf = grid_search.best_estimator_
@@ -101,62 +93,6 @@ best_rf = grid_search.best_estimator_
 # Evaluate the model
 y_pred = best_rf.predict(X_test)
 accuracy = accuracy_score(y_test, y_pred)
-
-
-import streamlit as st
-from sklearn.tree import export_graphviz
-import graphviz
-
-st.subheader("Random Forest Visualization")
-
-# Allow user to select a tree index to display
-tree_index = st.slider("Select a Tree Index", 0, len(best_rf.estimators_) - 1, 0)
-
-# Get the selected tree
-selected_tree = best_rf.estimators_[tree_index]
-
-# Export tree to Graphviz format with larger image size
-dot_data = export_graphviz(
-    selected_tree, 
-    feature_names=preprocessor.get_feature_names_out(), 
-    class_names=best_rf.classes_, 
-    filled=True, 
-    rounded=True, 
-    special_characters=True,
-    node_ids=True
-)
-
-# Create Graphviz Source with larger size
-graph = graphviz.Source(dot_data, format="png", engine="dot")
-
-# Display the tree
-st.graphviz_chart(graph.source)
-
-st.markdown(f"Showing Tree {tree_index} of {len(best_rf.estimators_)} in the Random Forest.")
-
-
-
-
-import numpy as np
-import matplotlib.pyplot as plt
-
-# Aggregate feature importances from all trees
-importances = np.mean([tree.feature_importances_ for tree in best_rf.estimators_], axis=0)
-
-# Create a DataFrame for visualization
-feature_importance_df = pd.DataFrame({
-    'Feature': preprocessor.get_feature_names_out(),
-    'Importance': importances
-}).sort_values(by='Importance', ascending=False)
-
-# Plot feature importances
-st.subheader("Average Feature Importance Across All Trees")
-fig, ax = plt.subplots(figsize=(10, 5))
-ax.barh(feature_importance_df['Feature'], feature_importance_df['Importance'])
-ax.set_xlabel('Importance')
-ax.set_title('Feature Importance in Random Forest')
-st.pyplot(fig)
-
 
 # Streamlit UI
 st.title("AI Strategy Recommendation System")
@@ -242,13 +178,54 @@ input_data = user_input_features()
 st.subheader("Your Inputs")
 st.json(input_data)
 
+# Function to recommend strategy
+def recommend_strategy(input_data):
+    input_df = pd.DataFrame([input_data])
+    input_transformed = preprocessor.transform(input_df)
+    prediction = best_rf.predict(input_transformed)
+    return prediction[0]
+
+# Display the user inputs
+if st.button("Get Recommendation"):
+    with st.spinner("Generating recommendation..."):
+        time.sleep(2)  # Simulate processing time
+        recommended_strategy = recommend_strategy(input_data)
+        st.success(f"Recommended Strategy: {recommended_strategy}")
+
+# Random Forest Visualization
+st.subheader("Random Forest Visualization")
+
+# Allow user to select a tree index to display
+tree_index = st.slider("Select a Tree Index", 0, len(best_rf.estimators_) - 1, 0)
+
+# Get the selected tree
+selected_tree = best_rf.estimators_[tree_index]
+
+# Export tree to Graphviz format with larger image size
+dot_data = export_graphviz(
+    selected_tree, 
+    feature_names=preprocessor.get_feature_names_out(), 
+    class_names=best_rf.classes_, 
+    filled=True, 
+    rounded=True, 
+    special_characters=True,
+    node_ids=True
+)
+
+# Create Graphviz Source with larger size
+graph = graphviz.Source(dot_data, format="png", engine="dot")
+
+# Display the tree
+st.graphviz_chart(graph.source)
+
+st.markdown(f"Showing Tree {tree_index} of {len(best_rf.estimators_)} in the Random Forest.")
+
 # Feature Importance Analysis
-importances = best_rf.feature_importances_
-feature_names = preprocessor.get_feature_names_out()
+importances = np.mean([tree.feature_importances_ for tree in best_rf.estimators_], axis=0)
 
 # Create a DataFrame for visualization
 feature_importance_df = pd.DataFrame({
-    'Feature': feature_names,
+    'Feature': preprocessor.get_feature_names_out(),
     'Importance': importances
 }).sort_values(by='Importance', ascending=False)
 
@@ -266,17 +243,3 @@ ax.set_title('Feature Importance')
 plt.xticks(fontsize=8)  # Adjust font size
 plt.yticks(fontsize=8)  # Adjust font size
 st.pyplot(fig)
-
-# Function to recommend strategy
-def recommend_strategy(input_data):
-    input_df = pd.DataFrame([input_data])
-    input_transformed = preprocessor.transform(input_df)
-    prediction = best_rf.predict(input_transformed)
-    return prediction[0]
-
-# Display the user inputs
-if st.button("Get Recommendation"):
-    with st.spinner("Generating recommendation..."):
-        time.sleep(2)  # Simulate processing time
-        recommended_strategy = recommend_strategy(input_data)
-        st.success(f"Recommended Strategy: {recommended_strategy}")
