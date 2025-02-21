@@ -129,8 +129,8 @@ dot_data = export_graphviz(
 graph = graphviz.Source(dot_data)
 
 # Save the graph to a file
-graph_path = f"tree_{tree_index}.png"
-graph.render(graph_path, format="png")
+graph_path = f"tree_{tree_index}.pda"
+graph.render(graph_path, format="pdf")
 
 # Display the tree in Streamlit
 st.graphviz_chart(dot_data)
@@ -138,12 +138,12 @@ st.graphviz_chart(dot_data)
 st.markdown(f"Showing Tree {tree_index} of {len(best_rf.estimators_)} in the Random Forest.")
 
 # Provide download button
-with open(graph_path + ".png", "rb") as file:
+with open(graph_path + ".pdf", "rb") as file:
     st.download_button(
         label="📥 Download Tree Graph",
         data=file,
-        file_name=f"random_forest_tree_{tree_index}.png",
-        mime="image/png"
+        file_name=f"random_forest_tree_{tree_index}.pdf",
+        mime="image/pdf"
     )
 
 # Remove the file after serving to avoid clutter
