@@ -124,10 +124,15 @@ dot_data = export_graphviz(
     special_characters=True
 )
 
+# Create a Graphviz source and adjust size
+graph = graphviz.Source(dot_data, format="png")
+graph.graph_attr.update(size="10,10")  # Adjust width and height as needed
+
 # Display the tree
-st.graphviz_chart(dot_data)
+st.graphviz_chart(graph.source)
 
 st.markdown(f"Showing Tree {tree_index} of {len(best_rf.estimators_)} in the Random Forest.")
+
 
 
 import numpy as np
