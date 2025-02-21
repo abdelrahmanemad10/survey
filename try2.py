@@ -105,6 +105,7 @@ accuracy = accuracy_score(y_test, y_pred)
 import streamlit as st
 from sklearn.tree import export_graphviz
 import graphviz
+import os
 
 st.subheader("Random Forest Visualization")
 
@@ -118,34 +119,36 @@ selected_tree = best_rf.estimators_[tree_index]
 dot_data = export_graphviz(
     selected_tree, 
     feature_names=preprocessor.get_feature_names_out(), 
-    class_names=best_rf.classes_, 
+    class_names=[str(c) for c in best_rf.classes_],  # Ensure class names are strings
     filled=True, 
     rounded=True, 
     special_characters=True
 )
+
 # Convert Graphviz output to a Graph
 graph = graphviz.Source(dot_data)
 
 # Save the graph to a file
 graph_path = f"tree_{tree_index}.png"
 graph.render(graph_path, format="png")
-# Display the tree
+
+# Display the tree in Streamlit
 st.graphviz_chart(dot_data)
 
 st.markdown(f"Showing Tree {tree_index} of {len(best_rf.estimators_)} in the Random Forest.")
-# Save the graph to a file
-    
-    # Provide download link
-with open(graph_path + ".png", "rb") as file:
-        st.download_button(
-            label="Download Tree Graph",
-            data=file,
-            file_name=f"random_forest_tree_{tree_index}.png",
-            mime="image/png"
-        )
 
-    # Remove the file after serving
+# Provide download button
+with open(graph_path + ".png", "rb") as file:
+    st.download_button(
+        label="📥 Download Tree Graph",
+        data=file,
+        file_name=f"random_forest_tree_{tree_index}.png",
+        mime="image/png"
+    )
+
+# Remove the file after serving to avoid clutter
 os.remove(graph_path + ".png")
+
 # Streamlit UI
 st.title("AI Strategy Recommendation System")
 st.markdown("""
