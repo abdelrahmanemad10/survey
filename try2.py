@@ -1,14 +1,17 @@
 import pandas as pd  
 import numpy as np  
-from sklearn.model_selection import train_test_split, GridSearchCV, RandomizedSearchCV  
-from sklearn.ensemble import RandomForestClassifier  
-from sklearn.metrics import accuracy_score, classification_report  
-from imblearn.over_sampling import SMOTE  
-import streamlit as st  
 import matplotlib.pyplot as plt  
+import seaborn as sns  
+from sklearn.model_selection import train_test_split, GridSearchCV  
+from sklearn.ensemble import RandomForestClassifier  
+from xgboost import XGBClassifier  
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix  
+from imblearn.over_sampling import SMOTE  
+from sklearn.preprocessing import StandardScaler  
+import streamlit as st  
 import time  
-from sklearn.tree import export_graphviz  
 import graphviz  
+from sklearn.tree import export_graphviz  
 import textwrap  
 
 # Load the dataset  
@@ -30,11 +33,13 @@ X_resampled, y_resampled = smote.fit_resample(X, y)
 # Split the data into training and testing sets with stratification  
 X_train, X_test, y_train, y_test = train_test_split(X_resampled, y_resampled, test_size=0.2, stratify=y_resampled, random_state=42)  
 
-# Define and train the RandomForest classifier  
-rf = RandomForestClassifier(random_state=42, class_weight='balanced')  
+# Feature Scaling  
+scaler = StandardScaler()  
+X_train_scaled = scaler.fit_transform(X_train)  
+X_test_scaled = scaler.transform(X_test)  
 
-# Hyperparameter tuning with RandomizedSearchCV  
-param_dist = {  
+# Train Random Forest with GridSearchCV for hyperparameter tuning  
+rf_param_grid = {  
     'n_estimators': [100, 200, 300],  
     'max_depth': [None, 10, 20, 30],  
     'min_samples_split': [2, 5, 10],  
@@ -43,16 +48,32 @@ param_dist = {
     'bootstrap': [True, False]  
 }  
 
-random_search = RandomizedSearchCV(rf, param_distributions=param_dist, n_iter=100, cv=3, scoring='accuracy', n_jobs=-1)  
-random_search.fit(X_train, y_train)  
+rf_grid_search = GridSearchCV(RandomForestClassifier(random_state=42, class_weight='balanced'),   
+                               param_grid=rf_param_grid,   
+                               scoring='accuracy',   
+                               n_jobs=-1,  
+                               cv=3)  
 
-# Get the best model  
-best_rf = random_search.best_estimator_  
+rf_grid_search.fit(X_train_scaled, y_train)  
+best_rf = rf_grid_search.best_estimator_  
 
-# Evaluate the model  
-y_pred = best_rf.predict(X_test)  
-accuracy = accuracy_score(y_test, y_pred)  
-report = classification_report(y_test, y_pred, target_names=np.unique(y))  
+# Train XGBoost Classifier  
+xgb_model = XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')  
+xgb_model.fit(X_train_scaled, y_train)  
+
+# Evaluate Models  
+def evaluate_model(model, X_test, y_test):  
+    y_pred = model.predict(X_test)  
+    accuracy = accuracy_score(y_test, y_pred)  
+    report = classification_report(y_test, y_pred)  
+    cm = confusion_matrix(y_test, y_pred)  
+    return accuracy, report, cm  
+
+# Evaluate Random Forest  
+rf_accuracy, rf_report, rf_cm = evaluate_model(best_rf, X_test_scaled, y_test)  
+
+# Evaluate XGBoost  
+xgb_accuracy, xgb_report, xgb_cm = evaluate_model(xgb_model, X_test_scaled, y_test)  
 
 # Streamlit UI  
 st.title("AI Strategy Recommendation System")  
@@ -111,70 +132,46 @@ st.json(input_data)
 # Function to recommend strategy  
 def recommend_strategy(input_data):  
     input_df = pd.DataFrame([input_data])  
-    input_transformed = preprocessor.transform(input_df)  # Add your preprocessing steps if needed  
-    prediction = best_rf.predict(input_transformed)  
-    return prediction[0]  
+    input_transformed = scaler.transform(input_df)  # Scale input features  
+    rf_prediction = best_rf.predict(input_transformed)  
+    xgb_prediction = xgb_model.predict(input_transformed)  
+    return rf_prediction[0], xgb_prediction[0]  
 
 # Display the user inputs  
 if st.button("Get Recommendation"):  
     with st.spinner("Generating recommendation..."):  
         time.sleep(2)  # Simulate processing time  
-        recommended_strategy = recommend_strategy(input_data)  
-        st.success(f"Recommended Strategy: {recommended_strategy}")  
+        rf_recommendation, xgb_recommendation = recommend_strategy(input_data)  
+        st.success(f"Recommended Strategy (Random Forest): {rf_recommendation}")  
+        st.success(f"Recommended Strategy (XGBoost): {xgb_recommendation}")  
 
-# Random Forest Visualization  
-st.subheader("Random Forest Visualization")  
-
-# Allow user to select a tree index to display  
-tree_index = st.slider("Select a Tree Index", 0, len(best_rf.estimators_) - 1, 0)  
-
-# Get the selected tree  
-selected_tree = best_rf.estimators_[tree_index]  
-
-# Export tree to Graphviz format  
-dot_data = export_graphviz(  
-    selected_tree,   
-    feature_names=input_df.columns,  # Ensure this corresponds to your preprocessed features  
-    class_names=best_rf.classes_,   
-    filled=True,   
-    rounded=True,   
-    special_characters=True,  
-    node_ids=True  
-)  
-
-# Create Graphviz Source  
-graph = graphviz.Source(dot_data, format="png", engine="dot")  
-
-# Display the tree  
-st.graphviz_chart(graph.source)  
-
-st.markdown(f"Showing Tree {tree_index} of {len(best_rf.estimators_)} in the Random Forest.")  
-
-# Feature Importance Analysis  
-importances = np.mean([tree.feature_importances_ for tree in best_rf.estimators_], axis=0)  
-
-# Create a DataFrame for visualization  
-feature_importance_df = pd.DataFrame({  
-    'Feature': input_df.columns,  # Ensure this corresponds to your preprocessed features  
-    'Importance': importances  
-}).sort_values(by='Importance', ascending=False)  
-
-# Wrap feature names for better readability  
-feature_importance_df['Feature'] = feature_importance_df['Feature'].apply(  
-    lambda x: '\n'.join(textwrap.wrap(x, width=30))  # Adjust wrap width as needed  
-)  
-
-# Plot feature importances  
-st.subheader("Feature Importance")  
-fig, ax = plt.subplots(figsize=(10, len(feature_importance_df) * 0.5))  # Adjust height dynamically  
-ax.barh(feature_importance_df['Feature'], feature_importance_df['Importance'])  
-ax.set_xlabel('Importance')  
-ax.set_title('Feature Importance')  
-plt.xticks(fontsize=8)  # Adjust font size  
-plt.yticks(fontsize=8)  # Adjust font size  
-st.pyplot(fig)  
-
-# Display accuracy and classification report  
+# Confusion Matrices Visualization  
 st.subheader("Model Performance")  
-st.write(f"Model Accuracy: {accuracy:.2f}")  
-st.text(report)
+
+# Random Forest Confusion Matrix  
+st.write("### Random Forest Confusion Matrix")  
+fig1, ax1 = plt.subplots()  
+sns.heatmap(rf_cm, annot=True, fmt='d', ax=ax1, cmap='Blues')  
+ax1.set_title('Random Forest Confusion Matrix')  
+ax1.set_xlabel('Predicted')  
+ax1.set_ylabel('True')  
+st.pyplot(fig1)  
+
+# XGBoost Confusion Matrix  
+st.write("### XGBoost Confusion Matrix")  
+fig2, ax2 = plt.subplots()  
+sns.heatmap(xgb_cm, annot=True, fmt='d', ax=ax2, cmap='Greens')  
+ax2.set_title('XGBoost Confusion Matrix')  
+ax2.set_xlabel('Predicted')  
+ax2.set_ylabel('True')  
+st.pyplot(fig2)  
+
+# Display accuracy and classification reports  
+st.subheader("Model Performance Metrics")  
+st.write("### Random Forest Performance")  
+st.write(f"Accuracy: {rf_accuracy:.2f}")  
+st.text(rf_report)  
+
+st.write("### XGBoost Performance")  
+st.write(f"Accuracy: {xgb_accuracy:.2f}")  
+st.text(xgb_report)
