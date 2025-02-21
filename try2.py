@@ -12,6 +12,7 @@ import textwrap
 import numpy as np
 from sklearn.tree import export_graphviz
 import graphviz
+import os
 
 # Set Streamlit page configuration
 st.set_page_config(page_title="AI Strategy Recommendation", layout="wide")
@@ -266,13 +267,17 @@ dot_data = export_graphviz(
     special_characters=True
 )
 
-# Display the decision tree
+# Convert DOT to PNG and save
 graph = graphviz.Source(dot_data)
-st.graphviz_chart(graph)
+graph.render("decision_tree", format="png")
+
+# Display the decision tree
+st.image("decision_tree.png")
 
 # Display the decision tree rules
 st.subheader("Decision Tree Rules")
 def tree_to_code(tree, feature_names):
+    from sklearn.tree import _tree
     tree_ = tree.tree_
     feature_name = [
         feature_names[i] if i != _tree.TREE_UNDEFINED else "undefined!"
