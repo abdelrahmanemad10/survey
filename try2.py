@@ -102,6 +102,33 @@ best_rf = grid_search.best_estimator_
 y_pred = best_rf.predict(X_test)
 accuracy = accuracy_score(y_test, y_pred)
 
+import streamlit as st
+from sklearn.tree import export_graphviz
+import graphviz
+
+st.subheader("Random Forest Visualization")
+
+# Allow user to select a tree index to display
+tree_index = st.slider("Select a Tree Index", 0, len(best_rf.estimators_) - 1, 0)
+
+# Get the selected tree
+selected_tree = best_rf.estimators_[tree_index]
+
+# Export tree to Graphviz format
+dot_data = export_graphviz(
+    selected_tree, 
+    feature_names=preprocessor.get_feature_names_out(), 
+    class_names=best_rf.classes_, 
+    filled=True, 
+    rounded=True, 
+    special_characters=True
+)
+
+# Display the tree
+st.graphviz_chart(dot_data)
+
+st.markdown(f"Showing Tree {tree_index} of {len(best_rf.estimators_)} in the Random Forest.")
+
 # Streamlit UI
 st.title("AI Strategy Recommendation System")
 st.markdown("""
