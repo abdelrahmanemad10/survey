@@ -300,6 +300,7 @@ def tree_to_code(tree, feature_names):
 
     recurse(0, "IF", 1)
     return paths
+
 rules = tree_to_code(selected_tree, preprocessor.get_feature_names_out())
 for rule in rules:
     st.text(rule)
