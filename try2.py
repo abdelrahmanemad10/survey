@@ -102,6 +102,7 @@ best_rf = grid_search.best_estimator_
 y_pred = best_rf.predict(X_test)
 accuracy = accuracy_score(y_test, y_pred)
 
+
 import streamlit as st
 from sklearn.tree import export_graphviz
 import graphviz
@@ -114,24 +115,25 @@ tree_index = st.slider("Select a Tree Index", 0, len(best_rf.estimators_) - 1, 0
 # Get the selected tree
 selected_tree = best_rf.estimators_[tree_index]
 
-# Export tree to Graphviz format
+# Export tree to Graphviz format with larger image size
 dot_data = export_graphviz(
     selected_tree, 
     feature_names=preprocessor.get_feature_names_out(), 
     class_names=best_rf.classes_, 
     filled=True, 
     rounded=True, 
-    special_characters=True
+    special_characters=True,
+    node_ids=True
 )
 
-# Create a Graphviz source and adjust size
-graph = graphviz.Source(dot_data, format="png")
-graph.graph_attr.update(size="10,10")  # Adjust width and height as needed
+# Create Graphviz Source with larger size
+graph = graphviz.Source(dot_data, format="png", engine="dot")
 
 # Display the tree
 st.graphviz_chart(graph.source)
 
 st.markdown(f"Showing Tree {tree_index} of {len(best_rf.estimators_)} in the Random Forest.")
+
 
 
 
