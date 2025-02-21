@@ -249,3 +249,53 @@ for i in range(conf_matrix.shape[0]):
 plt.xlabel('Predicted')
 plt.ylabel('Actual')
 st.pyplot(fig)
+
+# Visualize a Single Decision Tree
+st.subheader("Decision Tree Visualization")
+tree_index = st.slider("Select Tree Index", 0, len(best_rf.estimators_) - 1, 0)
+selected_tree = best_rf.estimators_[tree_index]
+
+# Export the selected tree to Graphviz format
+dot_data = export_graphviz(
+    selected_tree,
+    out_file=None,
+    feature_names=preprocessor.get_feature_names_out(),
+    class_names=best_rf.classes_,
+    filled=True,
+    rounded=True,
+    special_characters=True
+)
+
+# Display the decision tree
+graph = graphviz.Source(dot_data)
+st.graphviz_chart(graph)
+
+# Display the decision tree rules
+st.subheader("Decision Tree Rules")
+def tree_to_code(tree, feature_names):
+    tree_ = tree.tree_
+    feature_name = [
+        feature_names[i] if i != _tree.TREE_UNDEFINED else "undefined!"
+        for i in tree_.feature
+    ]
+    feature_name = [f.replace("cat__", "") for f in feature_name]
+    paths = []
+
+    def recurse(node, path, depth):
+        if tree_.feature[node] != _tree.TREE_UNDEFINED:
+            name = feature_name[node]
+            threshold = tree_.threshold[node]
+            path_left = f"{path} AND {name} <= {threshold:.2f}"
+            path_right = f"{path} AND {name} > {threshold:.2f}"
+            recurse(tree_.children_left[node], path_left, depth + 1)
+            recurse(tree_.children_right[node], path_right, depth + 1)
+        else:
+            path = f"{path} THEN class: {tree_.value[node]}"
+            paths.append(path)
+
+    recurse(0, "IF", 1)
+    return paths
+
+rules = tree_to_code(selected_tree, preprocessor.get_feature_names_out())
+for rule in rules:
+    st.text(rule)
