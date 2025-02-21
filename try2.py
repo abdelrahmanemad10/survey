@@ -205,7 +205,7 @@ feature_importance_df = pd.DataFrame({
 
 # Wrap feature names for better readability
 feature_importance_df['Feature'] = feature_importance_df['Feature'].apply(
-    lambda x: '\n'.join(textwrap.wrap(x, width=30))  # Adjust width as needed
+    lambda x: '\n'.join(textwrap.wrap(x, width=30)))  # Adjust width as needed
 
 # Plot feature importances
 st.subheader("Feature Importance")
