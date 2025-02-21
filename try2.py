@@ -3,18 +3,14 @@ import streamlit as st
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.compose import ColumnTransformer
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.metrics import accuracy_score
 from sklearn.ensemble import RandomForestClassifier
 from imblearn.over_sampling import SMOTE
 import time
 import matplotlib.pyplot as plt
 import textwrap
-import numpy as np
-from sklearn.tree import export_graphviz
-import graphviz
-import os
 
-# Set Streamlit page configuration
+# Set Streamlit page configuration (MUST BE THE FIRST STREAMLIT COMMAND)
 st.set_page_config(page_title="AI Strategy Recommendation", layout="wide")
 
 # Custom CSS for styling
@@ -34,11 +30,7 @@ st.markdown(
 )
 
 # Load the data
-@st.cache_data
-def load_data():
-    return pd.read_csv('./Survey.csv')
-
-df = load_data()
+df = pd.read_csv('./Survey.csv')
 
 # Select relevant columns
 columns = [
@@ -109,6 +101,62 @@ best_rf = grid_search.best_estimator_
 # Evaluate the model
 y_pred = best_rf.predict(X_test)
 accuracy = accuracy_score(y_test, y_pred)
+
+
+import streamlit as st
+from sklearn.tree import export_graphviz
+import graphviz
+
+st.subheader("Random Forest Visualization")
+
+# Allow user to select a tree index to display
+tree_index = st.slider("Select a Tree Index", 0, len(best_rf.estimators_) - 1, 0)
+
+# Get the selected tree
+selected_tree = best_rf.estimators_[tree_index]
+
+# Export tree to Graphviz format with larger image size
+dot_data = export_graphviz(
+    selected_tree, 
+    feature_names=preprocessor.get_feature_names_out(), 
+    class_names=best_rf.classes_, 
+    filled=True, 
+    rounded=True, 
+    special_characters=True,
+    node_ids=True
+)
+
+# Create Graphviz Source with larger size
+graph = graphviz.Source(dot_data, format="png", engine="dot")
+
+# Display the tree
+st.graphviz_chart(graph.source)
+
+st.markdown(f"Showing Tree {tree_index} of {len(best_rf.estimators_)} in the Random Forest.")
+
+
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Aggregate feature importances from all trees
+importances = np.mean([tree.feature_importances_ for tree in best_rf.estimators_], axis=0)
+
+# Create a DataFrame for visualization
+feature_importance_df = pd.DataFrame({
+    'Feature': preprocessor.get_feature_names_out(),
+    'Importance': importances
+}).sort_values(by='Importance', ascending=False)
+
+# Plot feature importances
+st.subheader("Average Feature Importance Across All Trees")
+fig, ax = plt.subplots(figsize=(10, 5))
+ax.barh(feature_importance_df['Feature'], feature_importance_df['Importance'])
+ax.set_xlabel('Importance')
+ax.set_title('Feature Importance in Random Forest')
+st.pyplot(fig)
+
 
 # Streamlit UI
 st.title("AI Strategy Recommendation System")
@@ -206,13 +254,13 @@ feature_importance_df = pd.DataFrame({
 
 # Wrap feature names for better readability
 feature_importance_df['Feature'] = feature_importance_df['Feature'].apply(
-    lambda x: '\n'.join(textwrap.wrap(x, width=30)))  # Adjust width as needed
+    lambda x: '\n'.join(textwrap.wrap(x, width=30))  # Adjust width as needed
+)
 
 # Plot feature importances
 st.subheader("Feature Importance")
-top_n = st.slider("Select Top N Features", 5, 50, 10)
-fig, ax = plt.subplots(figsize=(10, top_n * 0.5))  # Adjust height dynamically
-ax.barh(feature_importance_df['Feature'][:top_n], feature_importance_df['Importance'][:top_n])
+fig, ax = plt.subplots(figsize=(10, len(feature_importance_df) * 0.5))  # Adjust height dynamically
+ax.barh(feature_importance_df['Feature'], feature_importance_df['Importance'])
 ax.set_xlabel('Importance')
 ax.set_title('Feature Importance')
 plt.xticks(fontsize=8)  # Adjust font size
@@ -232,75 +280,3 @@ if st.button("Get Recommendation"):
         time.sleep(2)  # Simulate processing time
         recommended_strategy = recommend_strategy(input_data)
         st.success(f"Recommended Strategy: {recommended_strategy}")
-
-# Display model performance
-st.subheader("Model Performance")
-st.write(f"Accuracy: {accuracy:.2f}")
-st.write("Classification Report:")
-st.text(classification_report(y_test, y_pred))
-
-# Confusion Matrix
-st.write("Confusion Matrix:")
-conf_matrix = confusion_matrix(y_test, y_pred)
-fig, ax = plt.subplots()
-ax.matshow(conf_matrix, cmap=plt.cm.Blues)
-for i in range(conf_matrix.shape[0]):
-    for j in range(conf_matrix.shape[1]):
-        ax.text(j, i, conf_matrix[i, j], ha='center', va='center')
-plt.xlabel('Predicted')
-plt.ylabel('Actual')
-st.pyplot(fig)
-
-# Visualize a Single Decision Tree
-st.subheader("Decision Tree Visualization")
-tree_index = st.slider("Select Tree Index", 0, len(best_rf.estimators_) - 1, 0)
-selected_tree = best_rf.estimators_[tree_index]
-
-# Export the selected tree to Graphviz format
-dot_data = export_graphviz(
-    selected_tree,
-    out_file=None,
-    feature_names=preprocessor.get_feature_names_out(),
-    class_names=best_rf.classes_,
-    filled=True,
-    rounded=True,
-    special_characters=True
-)
-
-# Convert DOT to PNG and save
-graph = graphviz.Source(dot_data)
-graph.render("decision_tree", format="png")
-
-# Display the decision tree
-st.image("decision_tree.png")
-
-# Display the decision tree rules
-st.subheader("Decision Tree Rules")
-def tree_to_code(tree, feature_names):
-    from sklearn.tree import _tree
-    tree_ = tree.tree_
-    feature_name = [
-        feature_names[i] if i != _tree.TREE_UNDEFINED else "undefined!"
-        for i in tree_.feature
-    ]
-    feature_name = [f.replace("cat__", "") for f in feature_name]
-    paths = []
-
-    def recurse(node, path, depth):
-        if tree_.feature[node] != _tree.TREE_UNDEFINED:
-            name = feature_name[node]
-            threshold = tree_.threshold[node]
-            path_left = f"{path} AND {name} <= {threshold:.2f}"
-            path_right = f"{path} AND {name} > {threshold:.2f}"
-            recurse(tree_.children_left[node], path_left, depth + 1)
-            recurse(tree_.children_right[node], path_right, depth + 1)
-        else:
-            path = f"{path} THEN class: {tree_.value[node]}"
-            paths.append(path)
-
-    recurse(0, "IF", 1)
-    return paths
-
-rules = tree_to_code(selected_tree, preprocessor.get_feature_names_out())
-for rule in rules:
-    st.text(rule)
