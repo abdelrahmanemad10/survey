@@ -105,7 +105,6 @@ accuracy = accuracy_score(y_test, y_pred)
 import streamlit as st
 from sklearn.tree import export_graphviz
 import graphviz
-import os
 
 st.subheader("Random Forest Visualization")
 
@@ -119,35 +118,38 @@ selected_tree = best_rf.estimators_[tree_index]
 dot_data = export_graphviz(
     selected_tree, 
     feature_names=preprocessor.get_feature_names_out(), 
-    class_names=[str(c) for c in best_rf.classes_],  # Ensure class names are strings
+    class_names=best_rf.classes_, 
     filled=True, 
     rounded=True, 
     special_characters=True
 )
 
-# Convert Graphviz output to a Graph
-graph = graphviz.Source(dot_data)
-
-# Save the graph to a file
-graph_path = f"tree_{tree_index}.pda"
-graph.render(graph_path, format="pdf")
-
-# Display the tree in Streamlit
+# Display the tree
 st.graphviz_chart(dot_data)
 
 st.markdown(f"Showing Tree {tree_index} of {len(best_rf.estimators_)} in the Random Forest.")
 
-# Provide download button
-with open(graph_path + ".pdf", "rb") as file:
-    st.download_button(
-        label="📥 Download Tree Graph",
-        data=file,
-        file_name=f"random_forest_tree_{tree_index}.pdf",
-        mime="image/pdf"
-    )
 
-# Remove the file after serving to avoid clutter
-os.remove(graph_path + ".png")
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Aggregate feature importances from all trees
+importances = np.mean([tree.feature_importances_ for tree in best_rf.estimators_], axis=0)
+
+# Create a DataFrame for visualization
+feature_importance_df = pd.DataFrame({
+    'Feature': preprocessor.get_feature_names_out(),
+    'Importance': importances
+}).sort_values(by='Importance', ascending=False)
+
+# Plot feature importances
+st.subheader("Average Feature Importance Across All Trees")
+fig, ax = plt.subplots(figsize=(10, 5))
+ax.barh(feature_importance_df['Feature'], feature_importance_df['Importance'])
+ax.set_xlabel('Importance')
+ax.set_title('Feature Importance in Random Forest')
+st.pyplot(fig)
+
 
 # Streamlit UI
 st.title("AI Strategy Recommendation System")
