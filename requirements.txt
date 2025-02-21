@@ -19,3 +19,4 @@ imbalanced-learn
 matplotlib
 textwrap3
 xlsxwriter
+graphviz
