@@ -20,3 +20,4 @@ matplotlib
 textwrap3
 xlsxwriter
 graphviz
+xgboost
